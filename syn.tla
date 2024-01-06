@@ -3,29 +3,34 @@ EXTENDS FiniteSets, Integers, Sequences
 
 CONSTANTS Nodes, MaxValues
 
-VARIABLES inbox, registered, locally_registered, next_val
+VARIABLES inbox, registered, locally_registered, next_val, visible_nodes
 
-vars == <<inbox, registered, locally_registered, next_val>>
+vars == <<inbox, registered, locally_registered, next_val, visible_nodes>>
+
+AllOtherNodes(n) ==
+    Nodes \ {n}
 
 Init ==
     /\ inbox = [n \in Nodes |-> <<>>]
     /\ registered = {}
     /\ locally_registered = [n \in Nodes |-> {}]
     /\ next_val = 0
+    /\ visible_nodes = [n \in Nodes |-> AllOtherNodes(n)]
 
 Register(n) ==
     /\ next_val < MaxValues
     /\ registered' = registered \union {next_val}
     /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \union {next_val}]
     /\ next_val' = next_val + 1
-    /\ inbox' = [o \in Nodes |-> IF o = n THEN inbox[o] ELSE Append(inbox[o], [action |-> "sync_register", name |-> next_val])]
+    /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_register", name |-> next_val]) ELSE inbox[o]]
+    /\ UNCHANGED <<visible_nodes>>
 
 SyncRegister(n) ==
     /\ Len(inbox[n]) > 0
     /\ Head(inbox[n]).action = "sync_register"
     /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \union {Head(inbox[n]).name}]
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
-    /\ UNCHANGED <<registered, next_val>>
+    /\ UNCHANGED <<registered, next_val, visible_nodes>>
 
 ItemToRemove(n) ==
     CHOOSE r \in locally_registered[n]: TRUE
@@ -35,19 +40,39 @@ Unregister(n) ==
     /\ LET item_to_remove == ItemToRemove(n)
         IN registered' = registered \ {item_to_remove}
         /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \ {item_to_remove}]
-        /\ inbox' = [o \in Nodes |-> IF o = n THEN inbox[o] ELSE Append(inbox[o], [action |-> "sync_unregister", name |-> item_to_remove])]
-    /\ UNCHANGED <<next_val>>
+        /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_unregister", name |-> item_to_remove]) ELSE inbox[o]]
+    /\ UNCHANGED <<next_val, visible_nodes>>
 
 SyncUnregister(n) ==
     /\ Len(inbox[n]) > 0
     /\ Head(inbox[n]).action = "sync_unregister"
     /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \ {Head(inbox[n]).name}]
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
-    /\ UNCHANGED <<registered, next_val>>
+    /\ UNCHANGED <<registered, next_val, visible_nodes>>
+
+Disconnect(n) ==
+    /\ Cardinality(visible_nodes[n]) > 0
+    /\ LET other_node == CHOOSE o \in visible_nodes[n]: TRUE
+        IN visible_nodes' = [o \in Nodes |-> CASE
+            (o = other_node) -> visible_nodes[o] \ {n}
+            [] (o = n) -> visible_nodes[o] \ {other_node}
+            [] OTHER -> visible_nodes[o]
+        ]
+    /\ UNCHANGED <<registered, locally_registered, inbox, next_val>>
+
+Reconnect(n) ==
+    /\ Cardinality(AllOtherNodes(n) \ visible_nodes[n]) > 0
+    /\ LET other_node == CHOOSE o \in (AllOtherNodes(n) \ visible_nodes[n]): TRUE
+        IN visible_nodes' = [o \in Nodes |-> CASE
+            (o = other_node) -> visible_nodes[o] \union {n}
+            [] (o = n) -> visible_nodes[o] \union {other_node}
+            [] OTHER -> visible_nodes[o]
+        ]
+    /\ UNCHANGED <<registered, locally_registered, inbox, next_val>>
 
 Complete ==
     /\ next_val = MaxValues
-    /\ UNCHANGED <<inbox, registered, next_val, locally_registered>>
+    /\ UNCHANGED <<inbox, registered, next_val, locally_registered, visible_nodes>>
 
 Next ==
     /\ \E n \in Nodes:
@@ -55,13 +80,15 @@ Next ==
         \/ SyncRegister(n)
         \/ Unregister(n)
         \/ SyncUnregister(n)
+        \/ Disconnect(n)
+        \/ Reconnect(n)
         \/ Complete
 
 Spec == Init /\ [][Next]_vars
 
 AllRegistered ==
     \A n \in Nodes:
-        Len(inbox[n]) = 0 => locally_registered[n] = registered
+        Len(inbox[n]) = 0 /\ visible_nodes[n] = AllOtherNodes(n) => locally_registered[n] = registered
 
 AllMessagesProcessed ==
     \A n \in Nodes:
