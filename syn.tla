@@ -3,9 +3,9 @@ EXTENDS FiniteSets, Integers, Sequences
 
 CONSTANTS Nodes, MaxValues
 
-VARIABLES inbox, registered, locally_registered, next_val, visible_nodes
+VARIABLES inbox, registered, locally_registered, next_val, visible_nodes, states
 
-vars == <<inbox, registered, locally_registered, next_val, visible_nodes>>
+vars == <<inbox, registered, locally_registered, next_val, visible_nodes, states>>
 
 AllOtherNodes(n) ==
     Nodes \ {n}
@@ -16,6 +16,7 @@ Init ==
     /\ locally_registered = [n \in Nodes |-> {}]
     /\ next_val = 0
     /\ visible_nodes = [n \in Nodes |-> AllOtherNodes(n)]
+    /\ states = <<>>
 
 Register(n) ==
     /\ next_val < MaxValues
@@ -23,6 +24,7 @@ Register(n) ==
     /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \union {next_val}]
     /\ next_val' = next_val + 1
     /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_register", name |-> next_val]) ELSE inbox[o]]
+    /\ states' = Append(states, "Register")
     /\ UNCHANGED <<visible_nodes>>
 
 SyncRegister(n) ==
@@ -30,6 +32,7 @@ SyncRegister(n) ==
     /\ Head(inbox[n]).action = "sync_register"
     /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \union {Head(inbox[n]).name}]
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
+    /\ states' = Append(states, "SyncRegister")
     /\ UNCHANGED <<registered, next_val, visible_nodes>>
 
 ItemToRemove(n) ==
@@ -41,6 +44,7 @@ Unregister(n) ==
         IN registered' = registered \ {item_to_remove}
         /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \ {item_to_remove}]
         /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_unregister", name |-> item_to_remove]) ELSE inbox[o]]
+    /\ states' = Append(states, "Unregister")
     /\ UNCHANGED <<next_val, visible_nodes>>
 
 SyncUnregister(n) ==
@@ -48,6 +52,7 @@ SyncUnregister(n) ==
     /\ Head(inbox[n]).action = "sync_unregister"
     /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \ {Head(inbox[n]).name}]
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
+    /\ states' = Append(states, "SyncUnregister")
     /\ UNCHANGED <<registered, next_val, visible_nodes>>
 
 Disconnect(n) ==
@@ -58,6 +63,7 @@ Disconnect(n) ==
             [] (o = n) -> visible_nodes[o] \ {other_node}
             [] OTHER -> visible_nodes[o]
         ]
+    /\ states' = Append(states, "Disconnect")
     /\ UNCHANGED <<registered, locally_registered, inbox, next_val>>
 
 Reconnect(n) ==
@@ -68,11 +74,12 @@ Reconnect(n) ==
             [] (o = n) -> visible_nodes[o] \union {other_node}
             [] OTHER -> visible_nodes[o]
         ]
+    /\ states' = Append(states, "Reconnect")
     /\ UNCHANGED <<registered, locally_registered, inbox, next_val>>
 
 Complete ==
     /\ next_val = MaxValues
-    /\ UNCHANGED <<inbox, registered, next_val, locally_registered, visible_nodes>>
+    /\ UNCHANGED <<inbox, registered, next_val, locally_registered, visible_nodes, states>>
 
 Next ==
     /\ \E n \in Nodes:
