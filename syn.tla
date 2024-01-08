@@ -74,8 +74,34 @@ Reconnect(n) ==
             [] (o = n) -> visible_nodes[o] \union {other_node}
             [] OTHER -> visible_nodes[o]
         ]
+        /\ inbox' = [o \in Nodes |-> CASE
+            (o = n) -> Append(inbox[o], [action |-> "discover", from |-> other_node])
+            [] (o = other_node) -> Append(inbox[o], [action |-> "discover", from |-> n])
+            [] OTHER -> inbox[o]
+        ]
     /\ states' = Append(states, "Reconnect")
-    /\ UNCHANGED <<registered, locally_registered, inbox, next_val>>
+    /\ UNCHANGED <<registered, locally_registered, next_val>>
+
+Discover(n) ==
+    /\ Len(inbox[n]) > 0
+    /\ LET message == Head(inbox[n])
+        IN message.action = "discover"
+        /\ inbox' = [o \in Nodes |-> CASE
+            (o = n) -> Tail(inbox[o])
+            [] (o = message.from) -> Append(inbox[o], [action |-> "ack_sync", local_data |-> locally_registered[n]])
+            [] OTHER -> inbox[o]
+        ]
+    /\ states' = Append(states, "Discover")
+    /\ UNCHANGED <<registered, next_val, visible_nodes, locally_registered>>
+
+AckSync(n) ==
+    /\ Len(inbox[n]) > 0
+    /\ Head(inbox[n]).action = "ack_sync"
+    /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
+    /\ LET message == Head(inbox[n])
+        IN locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \union message.local_data]
+    /\ states' = Append(states, "AckSync")
+    /\ UNCHANGED <<registered, next_val, visible_nodes>>
 
 Complete ==
     /\ next_val = MaxValues
@@ -89,13 +115,15 @@ Next ==
         \/ SyncUnregister(n)
         \/ Disconnect(n)
         \/ Reconnect(n)
+        \/ Discover(n)
+        \/ AckSync(n)
         \/ Complete
 
 Spec == Init /\ [][Next]_vars
 
 AllRegistered ==
     \A n \in Nodes:
-        Len(inbox[n]) = 0 /\ visible_nodes[n] = AllOtherNodes(n) => locally_registered[n] = registered
+        (\A o \in Nodes: Len(inbox[o]) = 0) /\ visible_nodes[n] = AllOtherNodes(n) => locally_registered[n] = registered
 
 AllMessagesProcessed ==
     \A n \in Nodes:
