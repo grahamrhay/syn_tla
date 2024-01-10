@@ -15,7 +15,6 @@ Init ==
     /\ removed = 0
 
 Register(n) ==
-    /\ \A o \in Nodes: Len(inbox[o]) = 0
     /\ next_val < MaxValues
     /\ registered' = [registered EXCEPT![n] = registered[n] \union {next_val}]
     /\ next_val' = next_val + 1
@@ -34,7 +33,6 @@ ItemToRemove(n) ==
     CHOOSE r \in registered[n]: TRUE
 
 Unregister(n) ==
-    /\ \A o \in Nodes: Len(inbox[o]) = 0
     /\ Cardinality(registered[n]) > 0
     /\ LET item_to_remove == ItemToRemove(n)
         IN registered' = [registered EXCEPT![n] = registered[n] \ {item_to_remove}]
