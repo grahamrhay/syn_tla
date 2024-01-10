@@ -63,8 +63,13 @@ Disconnect(n) ==
             [] (o = n) -> visible_nodes[o] \ {other_node}
             [] OTHER -> visible_nodes[o]
         ]
+        /\ inbox' = [o \in Nodes |-> CASE
+            (o = n) -> Append(inbox[o], [action |-> "DOWN", from |-> other_node])
+            [] (o = other_node) -> Append(inbox[o], [action |-> "DOWN", from |-> n])
+            [] OTHER -> inbox[o]
+        ]
     /\ states' = Append(states, "Disconnect")
-    /\ UNCHANGED <<registered, locally_registered, inbox, next_val>>
+    /\ UNCHANGED <<registered, locally_registered, next_val>>
 
 Reconnect(n) ==
     /\ Cardinality(AllOtherNodes(n) \ visible_nodes[n]) > 0
@@ -103,6 +108,13 @@ AckSync(n) ==
     /\ states' = Append(states, "AckSync")
     /\ UNCHANGED <<registered, next_val, visible_nodes>>
 
+Down(n) ==
+    /\ Len(inbox[n]) > 0
+    /\ Head(inbox[n]).action = "DOWN"
+    /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
+    /\ states' = Append(states, "Down")
+    /\ UNCHANGED <<registered, next_val, visible_nodes, locally_registered>>
+
 Complete ==
     /\ next_val = MaxValues
     /\ UNCHANGED <<inbox, registered, next_val, locally_registered, visible_nodes, states>>
@@ -117,6 +129,7 @@ Next ==
         \/ Reconnect(n)
         \/ Discover(n)
         \/ AckSync(n)
+        \/ Down(n)
         \/ Complete
 
 Spec == Init /\ [][Next]_vars
