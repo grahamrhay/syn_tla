@@ -119,8 +119,11 @@ Down(n) ==
     /\ Len(inbox[n]) > 0
     /\ Head(inbox[n]).action = "DOWN"
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
+    /\ LET message == Head(inbox[n])
+        l == [locally_registered[n] EXCEPT![message.from] = {}]
+        IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ states' = Append(states, "Down")
-    /\ UNCHANGED <<registered, next_val, visible_nodes, locally_registered>>
+    /\ UNCHANGED <<registered, next_val, visible_nodes>>
 
 Complete ==
     /\ next_val = MaxValues
