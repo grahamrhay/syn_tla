@@ -1,11 +1,11 @@
 ---- MODULE syn ----
 EXTENDS FiniteSets, Integers, Sequences
 
-CONSTANTS Nodes, MaxValues
+CONSTANTS Nodes, MaxValues, MaxDisconnections
 
-VARIABLES inbox, registered, locally_registered, next_val, visible_nodes, states
+VARIABLES inbox, registered, locally_registered, next_val, visible_nodes, states, disconnections
 
-vars == <<inbox, registered, locally_registered, next_val, visible_nodes, states>>
+vars == <<inbox, registered, locally_registered, next_val, visible_nodes, states, disconnections>>
 
 AllOtherNodes(n) ==
     Nodes \ {n}
@@ -15,6 +15,7 @@ Init ==
     /\ registered = {}
     /\ locally_registered = [n1 \in Nodes |-> [n2 \in Nodes |-> {}]]
     /\ next_val = 0
+    /\ disconnections = 0
     /\ visible_nodes = [n \in Nodes |-> AllOtherNodes(n)]
     /\ states = <<>>
 
@@ -26,7 +27,7 @@ Register(n) ==
     /\ next_val' = next_val + 1
     /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_register", name |-> next_val, from |-> n]) ELSE inbox[o]]
     /\ states' = Append(states, "Register")
-    /\ UNCHANGED <<visible_nodes>>
+    /\ UNCHANGED <<visible_nodes, disconnections>>
 
 SyncRegister(n) ==
     /\ Len(inbox[n]) > 0
@@ -36,7 +37,7 @@ SyncRegister(n) ==
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
     /\ states' = Append(states, "SyncRegister")
-    /\ UNCHANGED <<registered, next_val, visible_nodes>>
+    /\ UNCHANGED <<registered, next_val, visible_nodes, disconnections>>
 
 ItemToRemove(n) ==
     CHOOSE r \in locally_registered[n][n]: TRUE
@@ -49,7 +50,7 @@ Unregister(n) ==
         /\ locally_registered' = [locally_registered EXCEPT![n] = l]
         /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_unregister", name |-> item_to_remove, from |-> n]) ELSE inbox[o]]
     /\ states' = Append(states, "Unregister")
-    /\ UNCHANGED <<next_val, visible_nodes>>
+    /\ UNCHANGED <<next_val, visible_nodes, disconnections>>
 
 SyncUnregister(n) ==
     /\ Len(inbox[n]) > 0
@@ -59,9 +60,10 @@ SyncUnregister(n) ==
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
     /\ states' = Append(states, "SyncUnregister")
-    /\ UNCHANGED <<registered, next_val, visible_nodes>>
+    /\ UNCHANGED <<registered, next_val, visible_nodes, disconnections>>
 
 Disconnect(n) ==
+    /\ disconnections < MaxDisconnections
     /\ Cardinality(visible_nodes[n]) > 0
     /\ LET other_node == CHOOSE o \in visible_nodes[n]: TRUE
         IN visible_nodes' = [o \in Nodes |-> CASE
@@ -74,6 +76,7 @@ Disconnect(n) ==
             [] (o = other_node) -> Append(inbox[o], [action |-> "DOWN", from |-> n])
             [] OTHER -> inbox[o]
         ]
+    /\ disconnections' = disconnections + 1
     /\ states' = Append(states, "Disconnect")
     /\ UNCHANGED <<registered, locally_registered, next_val>>
 
@@ -91,7 +94,7 @@ Reconnect(n) ==
             [] OTHER -> inbox[o]
         ]
     /\ states' = Append(states, "Reconnect")
-    /\ UNCHANGED <<registered, locally_registered, next_val>>
+    /\ UNCHANGED <<registered, locally_registered, next_val, disconnections>>
 
 Discover(n) ==
     /\ Len(inbox[n]) > 0
@@ -103,7 +106,7 @@ Discover(n) ==
             [] OTHER -> inbox[o]
         ]
     /\ states' = Append(states, "Discover")
-    /\ UNCHANGED <<registered, next_val, visible_nodes, locally_registered>>
+    /\ UNCHANGED <<registered, next_val, visible_nodes, locally_registered, disconnections>>
 
 AckSync(n) ==
     /\ Len(inbox[n]) > 0
@@ -113,7 +116,7 @@ AckSync(n) ==
         l == [locally_registered[n] EXCEPT![message.from] = locally_registered[n][message.from] \union message.local_data]
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ states' = Append(states, "AckSync")
-    /\ UNCHANGED <<registered, next_val, visible_nodes>>
+    /\ UNCHANGED <<registered, next_val, visible_nodes, disconnections>>
 
 Down(n) ==
     /\ Len(inbox[n]) > 0
@@ -123,11 +126,11 @@ Down(n) ==
         l == [locally_registered[n] EXCEPT![message.from] = {}]
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ states' = Append(states, "Down")
-    /\ UNCHANGED <<registered, next_val, visible_nodes>>
+    /\ UNCHANGED <<registered, next_val, visible_nodes, disconnections>>
 
 Complete ==
     /\ next_val = MaxValues
-    /\ UNCHANGED <<inbox, registered, next_val, locally_registered, visible_nodes, states>>
+    /\ UNCHANGED <<inbox, registered, next_val, locally_registered, visible_nodes, disconnections, states>>
 
 Next ==
     /\ \E n \in Nodes:
