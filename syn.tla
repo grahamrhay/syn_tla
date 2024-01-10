@@ -13,7 +13,7 @@ AllOtherNodes(n) ==
 Init ==
     /\ inbox = [n \in Nodes |-> <<>>]
     /\ registered = {}
-    /\ locally_registered = [n \in Nodes |-> {}]
+    /\ locally_registered = [n1 \in Nodes |-> [n2 \in Nodes |-> {}]]
     /\ next_val = 0
     /\ visible_nodes = [n \in Nodes |-> AllOtherNodes(n)]
     /\ states = <<>>
@@ -21,36 +21,42 @@ Init ==
 Register(n) ==
     /\ next_val < MaxValues
     /\ registered' = registered \union {next_val}
-    /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \union {next_val}]
+    /\ LET l == [locally_registered[n] EXCEPT![n] = locally_registered[n][n] \union {next_val}]
+        IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ next_val' = next_val + 1
-    /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_register", name |-> next_val]) ELSE inbox[o]]
+    /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_register", name |-> next_val, from |-> n]) ELSE inbox[o]]
     /\ states' = Append(states, "Register")
     /\ UNCHANGED <<visible_nodes>>
 
 SyncRegister(n) ==
     /\ Len(inbox[n]) > 0
     /\ Head(inbox[n]).action = "sync_register"
-    /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \union {Head(inbox[n]).name}]
+    /\ LET message == Head(inbox[n])
+        l == [locally_registered[n] EXCEPT![message.from] = locally_registered[n][message.from] \union {message.name}]
+        IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
     /\ states' = Append(states, "SyncRegister")
     /\ UNCHANGED <<registered, next_val, visible_nodes>>
 
 ItemToRemove(n) ==
-    CHOOSE r \in locally_registered[n]: TRUE
+    CHOOSE r \in locally_registered[n][n]: TRUE
 
 Unregister(n) ==
-    /\ Cardinality(locally_registered[n]) > 0
+    /\ Cardinality(locally_registered[n][n]) > 0
     /\ LET item_to_remove == ItemToRemove(n)
+        l == [locally_registered[n] EXCEPT![n] = locally_registered[n][n] \ {item_to_remove}]
         IN registered' = registered \ {item_to_remove}
-        /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \ {item_to_remove}]
-        /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_unregister", name |-> item_to_remove]) ELSE inbox[o]]
+        /\ locally_registered' = [locally_registered EXCEPT![n] = l]
+        /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_unregister", name |-> item_to_remove, from |-> n]) ELSE inbox[o]]
     /\ states' = Append(states, "Unregister")
     /\ UNCHANGED <<next_val, visible_nodes>>
 
 SyncUnregister(n) ==
     /\ Len(inbox[n]) > 0
     /\ Head(inbox[n]).action = "sync_unregister"
-    /\ locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \ {Head(inbox[n]).name}]
+    /\ LET message == Head(inbox[n])
+        l == [locally_registered[n] EXCEPT![message.from] = locally_registered[n][message.from] \ {message.name}]
+        IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
     /\ states' = Append(states, "SyncUnregister")
     /\ UNCHANGED <<registered, next_val, visible_nodes>>
@@ -93,7 +99,7 @@ Discover(n) ==
         IN message.action = "discover"
         /\ inbox' = [o \in Nodes |-> CASE
             (o = n) -> Tail(inbox[o])
-            [] (o = message.from) -> Append(inbox[o], [action |-> "ack_sync", local_data |-> locally_registered[n]])
+            [] (o = message.from) -> Append(inbox[o], [action |-> "ack_sync", local_data |-> locally_registered[n][n], from |-> n])
             [] OTHER -> inbox[o]
         ]
     /\ states' = Append(states, "Discover")
@@ -104,7 +110,8 @@ AckSync(n) ==
     /\ Head(inbox[n]).action = "ack_sync"
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
     /\ LET message == Head(inbox[n])
-        IN locally_registered' = [locally_registered EXCEPT![n] = locally_registered[n] \union message.local_data]
+        l == [locally_registered[n] EXCEPT![message.from] = locally_registered[n][message.from] \union message.local_data]
+        IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ states' = Append(states, "AckSync")
     /\ UNCHANGED <<registered, next_val, visible_nodes>>
 
@@ -134,9 +141,20 @@ Next ==
 
 Spec == Init /\ [][Next]_vars
 
+RECURSIVE ReduceStruct(_, _, _)
+
+ReduceStruct(keys, struct, acc) ==
+    IF keys = {} THEN acc
+    ELSE
+        LET k == CHOOSE k \in keys: TRUE
+        IN ReduceStruct(keys \ {k}, struct, acc \union struct[k])
+
+AllRegisteredForNode(locals) ==
+    ReduceStruct(DOMAIN locals, locals, {})
+
 AllRegistered ==
     \A n \in Nodes:
-        (\A o \in Nodes: Len(inbox[o]) = 0) /\ visible_nodes[n] = AllOtherNodes(n) => locally_registered[n] = registered
+        (\A o \in Nodes: Len(inbox[o]) = 0) /\ visible_nodes[n] = AllOtherNodes(n) => AllRegisteredForNode(locally_registered[n]) = registered
 
 AllMessagesProcessed ==
     \A n \in Nodes:
