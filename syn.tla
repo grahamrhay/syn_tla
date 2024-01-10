@@ -1,7 +1,9 @@
 ---- MODULE syn ----
-EXTENDS FiniteSets, Integers, Sequences
+EXTENDS FiniteSets, Integers, Sequences, TLC
 
 CONSTANTS Nodes, MaxValues, MaxDisconnections
+
+Symmetry == Permutations(Nodes)
 
 VARIABLES inbox, registered, locally_registered, next_val, visible_nodes, states, disconnections
 
