@@ -26,7 +26,7 @@ Register(n) ==
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ next_val' = next_val + 1
     /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_register", name |-> next_val, from |-> n]) ELSE inbox[o]]
-    /\ states' = Append(states, "Register")
+    /\ states' = Append(states, <<"Register", n, next_val>>)
     /\ UNCHANGED <<visible_nodes, disconnections>>
 
 SyncRegister(n) ==
@@ -36,7 +36,7 @@ SyncRegister(n) ==
         l == [locally_registered[n] EXCEPT![message.from] = locally_registered[n][message.from] \union {message.name}]
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
-    /\ states' = Append(states, "SyncRegister")
+    /\ states' = Append(states, <<"SyncRegister", n, Head(inbox[n]).name>>)
     /\ UNCHANGED <<registered, next_val, visible_nodes, disconnections>>
 
 ItemToRemove(n) ==
@@ -49,7 +49,7 @@ Unregister(n) ==
         IN registered' = registered \ {item_to_remove}
         /\ locally_registered' = [locally_registered EXCEPT![n] = l]
         /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_unregister", name |-> item_to_remove, from |-> n]) ELSE inbox[o]]
-    /\ states' = Append(states, "Unregister")
+        /\ states' = Append(states, <<"Unregister", n, item_to_remove>>)
     /\ UNCHANGED <<next_val, visible_nodes, disconnections>>
 
 SyncUnregister(n) ==
@@ -59,7 +59,7 @@ SyncUnregister(n) ==
         l == [locally_registered[n] EXCEPT![message.from] = locally_registered[n][message.from] \ {message.name}]
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
-    /\ states' = Append(states, "SyncUnregister")
+    /\ states' = Append(states, <<"SyncUnregister", n, Head(inbox[n]).name>>)
     /\ UNCHANGED <<registered, next_val, visible_nodes, disconnections>>
 
 Disconnect(n) ==
@@ -76,8 +76,8 @@ Disconnect(n) ==
             [] (o = other_node) -> Append(inbox[o], [action |-> "DOWN", from |-> n])
             [] OTHER -> inbox[o]
         ]
+        /\ states' = Append(states, <<"Disconnect", n, other_node>>)
     /\ disconnections' = disconnections + 1
-    /\ states' = Append(states, "Disconnect")
     /\ UNCHANGED <<registered, locally_registered, next_val>>
 
 Reconnect(n) ==
@@ -93,7 +93,7 @@ Reconnect(n) ==
             [] (o = other_node) -> Append(inbox[o], [action |-> "discover", from |-> n])
             [] OTHER -> inbox[o]
         ]
-    /\ states' = Append(states, "Reconnect")
+        /\ states' = Append(states, <<"Reconnect", n, other_node>>)
     /\ UNCHANGED <<registered, locally_registered, next_val, disconnections>>
 
 Discover(n) ==
@@ -105,7 +105,7 @@ Discover(n) ==
             [] (o = message.from) -> Append(inbox[o], [action |-> "ack_sync", local_data |-> locally_registered[n][n], from |-> n])
             [] OTHER -> inbox[o]
         ]
-    /\ states' = Append(states, "Discover")
+        /\ states' = Append(states, <<"Discover", n, message.from>>)
     /\ UNCHANGED <<registered, next_val, visible_nodes, locally_registered, disconnections>>
 
 AckSync(n) ==
@@ -115,7 +115,7 @@ AckSync(n) ==
     /\ LET message == Head(inbox[n])
         l == [locally_registered[n] EXCEPT![message.from] = locally_registered[n][message.from] \union message.local_data]
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
-    /\ states' = Append(states, "AckSync")
+        /\ states' = Append(states, <<"AckSync", n, message.from>>)
     /\ UNCHANGED <<registered, next_val, visible_nodes, disconnections>>
 
 Down(n) ==
@@ -125,7 +125,7 @@ Down(n) ==
     /\ LET message == Head(inbox[n])
         l == [locally_registered[n] EXCEPT![message.from] = {}]
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
-    /\ states' = Append(states, "Down")
+        /\ states' = Append(states, <<"Down", n, message.from>>)
     /\ UNCHANGED <<registered, next_val, visible_nodes, disconnections>>
 
 Complete ==
