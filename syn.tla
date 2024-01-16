@@ -12,25 +12,37 @@ vars == <<inbox, registered, locally_registered, names, visible_nodes, states, d
 AllOtherNodes(n) ==
     Nodes \ {n}
 
+RECURSIVE ReduceStruct(_, _, _)
+
+ReduceStruct(keys, struct, acc) ==
+    IF keys = {} THEN acc
+    ELSE
+        LET k == CHOOSE k \in keys: TRUE
+        IN ReduceStruct(keys \ {k}, struct, acc \union DOMAIN struct[k])
+
+AllRegisteredForNode(locals) ==
+    ReduceStruct(DOMAIN locals, locals, {})
+
 Init ==
     /\ inbox = [n \in Nodes |-> <<>>]
     /\ registered = {}
     /\ locally_registered = [n1 \in Nodes |-> [n2 \in Nodes |-> <<>>]]
-    /\ names = {"a"}
+    /\ names = [n \in Nodes |-> {"a"}]
     /\ disconnections = 0
     /\ visible_nodes = [n \in Nodes |-> AllOtherNodes(n)]
     /\ time = 0
     /\ states = <<>>
 
 Register(n) ==
-    /\ names # {}
-    /\ LET next_val == CHOOSE o \in names: TRUE
-        l == [locally_registered[n] EXCEPT![n] = locally_registered[n][n] @@ [r \in {next_val} |-> time]]
-        IN registered' = registered \union {next_val}
-        /\ locally_registered' = [locally_registered EXCEPT![n] = l]
-        /\ names' = names \ {next_val}
-        /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_register", name |-> next_val, from |-> n, time |-> time]) ELSE inbox[o]]
-        /\ states' = Append(states, <<"Register", n, next_val>>)
+    /\ LET available_names == names[n] \ AllRegisteredForNode(locally_registered[n])
+        IN available_names # {}
+        /\ LET next_val == CHOOSE o \in available_names: TRUE
+            l == [locally_registered[n] EXCEPT![n] = locally_registered[n][n] @@ [r \in {next_val} |-> time]]
+            IN registered' = registered \union {next_val}
+            /\ locally_registered' = [locally_registered EXCEPT![n] = l]
+            /\ names' = [names EXCEPT![n] = names[n] \ {next_val}]
+            /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_register", name |-> next_val, from |-> n, time |-> time]) ELSE inbox[o]]
+            /\ states' = Append(states, <<"Register", n, next_val>>)
     /\ time' = time + 1
     /\ UNCHANGED <<visible_nodes, disconnections>>
 
@@ -38,7 +50,21 @@ SyncRegister(n) ==
     /\ Len(inbox[n]) > 0
     /\ Head(inbox[n]).action = "sync_register"
     /\ LET message == Head(inbox[n])
-        l == [locally_registered[n] EXCEPT![message.from] = locally_registered[n][message.from] @@ [r \in {message.name} |-> message.time]]
+        conflict == message.name \in DOMAIN locally_registered[n][n]
+        l == [o \in DOMAIN locally_registered[n] |-> CASE
+            (o = message.from) -> (
+                IF conflict /\ locally_registered[n][n][message.name] > message.time THEN
+                    locally_registered[n][message.from]
+                ELSE
+                    locally_registered[n][message.from] @@ [r \in {message.name} |-> message.time]
+            )
+            [] (o = n) ->
+                IF conflict /\ locally_registered[n][n][message.name] > message.time THEN
+                    locally_registered[n][n]
+                ELSE
+                    [r \in (DOMAIN locally_registered[n][n] \ {message.name}) |-> locally_registered[n][n][r]]
+            [] OTHER -> locally_registered[n][o]
+        ]
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
     /\ time' = time + 1
@@ -141,8 +167,9 @@ Down(n) ==
     /\ time' = time + 1
     /\ UNCHANGED <<registered, names, visible_nodes, disconnections>>
 
-Complete ==
-    /\ names = {}
+Complete(n) ==
+    /\ LET available_names == names[n] \ AllRegisteredForNode(locally_registered[n])
+        IN available_names = {}
     /\ UNCHANGED <<inbox, registered, names, locally_registered, visible_nodes, disconnections, time, states>>
 
 Next ==
@@ -156,20 +183,9 @@ Next ==
         \/ Discover(n)
         \/ AckSync(n)
         \/ Down(n)
-        \/ Complete
+        \/ Complete(n)
 
 Spec == Init /\ [][Next]_vars
-
-RECURSIVE ReduceStruct(_, _, _)
-
-ReduceStruct(keys, struct, acc) ==
-    IF keys = {} THEN acc
-    ELSE
-        LET k == CHOOSE k \in keys: TRUE
-        IN ReduceStruct(keys \ {k}, struct, acc \union DOMAIN struct[k])
-
-AllRegisteredForNode(locals) ==
-    ReduceStruct(DOMAIN locals, locals, {})
 
 AllRegistered ==
     \A n \in Nodes:
