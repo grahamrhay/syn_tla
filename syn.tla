@@ -191,6 +191,20 @@ AllRegistered ==
     \A n \in Nodes:
         (\A o \in Nodes: Len(inbox[o]) = 0) /\ visible_nodes[n] = AllOtherNodes(n) => AllRegisteredForNode(locally_registered[n]) = registered
 
+RECURSIVE Duplicates(_, _, _)
+
+Duplicates(keys, struct, acc) ==
+    IF Cardinality(keys) < 2 THEN acc
+    ELSE
+        LET k1 == CHOOSE k \in keys: TRUE
+        k2 == CHOOSE k \in (keys \ {k1}): TRUE
+        duplicates == DOMAIN struct[k1] \intersect DOMAIN struct[k2]
+        IN Duplicates(keys \ {k1}, struct, duplicates \union acc)
+
+ThereCanBeOnlyOne ==
+    \A n \in Nodes:
+        Duplicates(DOMAIN locally_registered[n], locally_registered[n], {}) = {}
+
 AllMessagesProcessed ==
     \A n \in Nodes:
         <>(Len(inbox[n]) = 0)
