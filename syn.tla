@@ -23,6 +23,17 @@ ReduceStruct(keys, struct, acc) ==
 AllRegisteredForNode(locals) ==
     ReduceStruct(DOMAIN locals, locals, {})
 
+RECURSIVE AllRegisteredNames(_, _, _)
+
+AllRegisteredNames(nodes, locals, registrations) ==
+    IF nodes = {} THEN registrations
+    ELSE
+        LET n == CHOOSE n \in nodes: TRUE
+        IN AllRegisteredNames(nodes \ {n}, locals, registrations \union DOMAIN locals[n][n])
+
+RegisteredElsewhere(node) ==
+    AllRegisteredNames(AllOtherNodes(node), locally_registered, {})
+
 Init ==
     /\ inbox = [n \in Nodes |-> <<>>]
     /\ registered = {}
@@ -78,7 +89,7 @@ Unregister(n) ==
     /\ Cardinality(DOMAIN locally_registered[n][n]) > 0
     /\ LET item_to_remove == ItemToRemove(n)
         l == [r \in (DOMAIN locally_registered[n][n] \ {item_to_remove}) |-> locally_registered[n][n][r]]
-        IN registered' = registered \ {item_to_remove}
+        IN registered' = (IF item_to_remove \in RegisteredElsewhere(n) THEN registered ELSE registered \ {item_to_remove})
         /\ locally_registered' = [locally_registered EXCEPT![n] = ([locally_registered[n] EXCEPT![n] = l])]
         /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_unregister", name |-> item_to_remove, from |-> n]) ELSE inbox[o]]
         /\ states' = Append(states, <<"Unregister", n, item_to_remove>>)
