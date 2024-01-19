@@ -111,13 +111,37 @@ ItemToRemove(n) ==
 Unregister(n) ==
     /\ Cardinality(DOMAIN locally_registered[n][n]) > 0
     /\ LET item_to_remove == ItemToRemove(n)
-        l == [r \in (DOMAIN locally_registered[n][n] \ {item_to_remove}) |-> locally_registered[n][n][r]]
-        IN registered' = (IF item_to_remove \in RegisteredElsewhere(n) THEN registered ELSE registered \ {item_to_remove})
-        /\ locally_registered' = [locally_registered EXCEPT![n] = ([locally_registered[n] EXCEPT![n] = l])]
-        /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_unregister", name |-> item_to_remove, from |-> n]) ELSE inbox[o]]
+        IN inbox' = [inbox EXCEPT![n] = Append(inbox[n], [action |-> "unregister_on_node", name |-> item_to_remove])]
         /\ states' = Append(states, <<"Unregister", n, item_to_remove>>)
     /\ time' = time + 1
-    /\ UNCHANGED <<names, visible_nodes, disconnections>>
+    /\ UNCHANGED <<registered, locally_registered, visible_nodes, disconnections, names>>
+
+UnregisterOnNode(n) ==
+    /\ Len(inbox[n]) > 0
+    /\ Head(inbox[n]).action = "unregister_on_node"
+    /\ LET message == Head(inbox[n])
+        l == [r \in (DOMAIN locally_registered[n][n] \ {message.name}) |-> locally_registered[n][n][r]]
+        already_removed == message.name \notin AllRegisteredForNode(locally_registered[n])
+        IN
+        (IF already_removed THEN
+            \* {error, undefined}
+            registered' = registered
+            /\ locally_registered' = locally_registered
+            /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
+            /\ names' = names
+        ELSE
+            registered' = (IF message.name \in RegisteredElsewhere(n) THEN registered ELSE registered \ {message.name})
+            /\ locally_registered' = [locally_registered EXCEPT![n] = ([locally_registered[n] EXCEPT![n] = l])]
+            /\ inbox' = [o \in Nodes |-> CASE
+                (o = n) -> Tail(inbox[n])
+                [] (o \in visible_nodes[n]) -> Append(inbox[o], [action |-> "sync_unregister", name |-> message.name, from |-> n])
+                [] OTHER -> inbox[o]
+            ]
+            /\ names' = [names EXCEPT![n] = names[n] \ {message.name}]
+        )
+        /\ states' = Append(states, <<"UnregisterOnNode", n, message.name>>)
+    /\ time' = time + 1
+    /\ UNCHANGED <<visible_nodes, disconnections>>
 
 SyncUnregister(n) ==
     /\ Len(inbox[n]) > 0
@@ -212,6 +236,7 @@ Next ==
         \/ RegisterOrUpdateOnNode(n)
         \/ SyncRegister(n)
         \/ Unregister(n)
+        \/ UnregisterOnNode(n)
         \/ SyncUnregister(n)
         \/ Disconnect(n)
         \/ Reconnect(n)
