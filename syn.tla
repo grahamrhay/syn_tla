@@ -48,12 +48,35 @@ Register(n) ==
     /\ LET available_names == names[n] \ AllRegisteredForNode(locally_registered[n])
         IN available_names # {}
         /\ LET next_val == CHOOSE o \in available_names: TRUE
-            l == [locally_registered[n] EXCEPT![n] = locally_registered[n][n] @@ [r \in {next_val} |-> time]]
-            IN registered' = registered \union {next_val}
-            /\ locally_registered' = [locally_registered EXCEPT![n] = l]
-            /\ names' = [names EXCEPT![n] = names[n] \ {next_val}]
-            /\ inbox' = [o \in Nodes |-> IF o \in visible_nodes[n] THEN Append(inbox[o], [action |-> "sync_register", name |-> next_val, from |-> n, time |-> time]) ELSE inbox[o]]
+            IN inbox' = [inbox EXCEPT![n] = Append(inbox[n], [action |-> "register_or_update_on_node", name |-> next_val])]
             /\ states' = Append(states, <<"Register", n, next_val>>)
+    /\ time' = time + 1
+    /\ UNCHANGED <<registered, locally_registered, visible_nodes, disconnections, names>>
+
+RegisterOrUpdateOnNode(n) ==
+    /\ Len(inbox[n]) > 0
+    /\ Head(inbox[n]).action = "register_or_update_on_node"
+    /\ LET message == Head(inbox[n])
+        l == [locally_registered[n] EXCEPT![n] = locally_registered[n][n] @@ [r \in {message.name} |-> time]]
+        already_registered == message.name \in AllRegisteredForNode(locally_registered[n])
+        IN
+        (IF already_registered THEN
+            \* {error, taken}
+            registered' = registered
+            /\ locally_registered' = locally_registered
+            /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
+            /\ names' = names
+        ELSE
+            registered' = registered \union {message.name}
+            /\ locally_registered' = [locally_registered EXCEPT![n] = l]
+            /\ inbox' = [o \in Nodes |-> CASE
+                (o = n) -> Tail(inbox[n])
+                [] (o \in visible_nodes[n]) -> Append(inbox[o], [action |-> "sync_register", name |-> message.name, from |-> n, time |-> time])
+                [] OTHER -> inbox[o]
+            ]
+            /\ names' = [names EXCEPT![n] = names[n] \ {message.name}]
+        )
+        /\ states' = Append(states, <<"RegisterOrUpdateOnNode", n, message.name>>)
     /\ time' = time + 1
     /\ UNCHANGED <<visible_nodes, disconnections>>
 
@@ -186,6 +209,7 @@ Complete(n) ==
 Next ==
     /\ \E n \in Nodes:
         \/ Register(n)
+        \/ RegisterOrUpdateOnNode(n)
         \/ SyncRegister(n)
         \/ Unregister(n)
         \/ SyncUnregister(n)
