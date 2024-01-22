@@ -53,8 +53,9 @@ Register(n) ==
         /\ LET next_val == CHOOSE o \in available_names: TRUE
             IN inbox' = [inbox EXCEPT![n] = Append(inbox[n], [action |-> "register_or_update_on_node", name |-> next_val])]
             /\ states' = Append(states, <<"Register", n, next_val>>)
+            /\ names' = [names EXCEPT![n] = names[n] \ {next_val}]
     /\ time' = time + 1
-    /\ UNCHANGED <<registered, locally_registered, visible_nodes, disconnections, names>>
+    /\ UNCHANGED <<registered, locally_registered, visible_nodes, disconnections>>
 
 RegisterOrUpdateOnNode(n) ==
     /\ Len(inbox[n]) > 0
@@ -68,7 +69,6 @@ RegisterOrUpdateOnNode(n) ==
             registered' = registered
             /\ locally_registered' = locally_registered
             /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
-            /\ names' = names
         ELSE
             registered' = [registered EXCEPT![message.name] = @ + 1]
             /\ locally_registered' = [locally_registered EXCEPT![n] = l]
@@ -77,11 +77,10 @@ RegisterOrUpdateOnNode(n) ==
                 [] (o \in visible_nodes[n]) -> Append(inbox[o], [action |-> "sync_register", name |-> message.name, from |-> n, time |-> time])
                 [] OTHER -> inbox[o]
             ]
-            /\ names' = [names EXCEPT![n] = names[n] \ {message.name}]
         )
         /\ states' = Append(states, <<"RegisterOrUpdateOnNode", n, message.name>>)
     /\ time' = time + 1
-    /\ UNCHANGED <<visible_nodes, disconnections>>
+    /\ UNCHANGED <<names, visible_nodes, disconnections>>
 
 SyncRegister(n) ==
     /\ Len(inbox[n]) > 0
@@ -141,11 +140,10 @@ UnregisterOnNode(n) ==
                 [] (o \in visible_nodes[n]) -> Append(inbox[o], [action |-> "sync_unregister", name |-> message.name, from |-> n])
                 [] OTHER -> inbox[o]
             ]
-            /\ names' = [names EXCEPT![n] = names[n] \ {message.name}]
         )
         /\ states' = Append(states, <<"UnregisterOnNode", n, message.name>>)
     /\ time' = time + 1
-    /\ UNCHANGED <<visible_nodes, disconnections>>
+    /\ UNCHANGED <<names, visible_nodes, disconnections>>
 
 SyncUnregister(n) ==
     /\ Len(inbox[n]) > 0
