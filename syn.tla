@@ -36,7 +36,7 @@ RegisteredElsewhere(node) ==
 
 Init ==
     /\ inbox = [n \in Nodes |-> <<>>]
-    /\ registered = {}
+    /\ registered = [n \in Names |-> 0]
     /\ locally_registered = [n1 \in Nodes |-> [n2 \in Nodes |-> <<>>]]
     /\ names = [n \in Nodes |-> Names]
     /\ disconnections = 0
@@ -67,7 +67,7 @@ RegisterOrUpdateOnNode(n) ==
             /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
             /\ names' = names
         ELSE
-            registered' = registered \union {message.name}
+            registered' = [registered EXCEPT![message.name] = @ + 1]
             /\ locally_registered' = [locally_registered EXCEPT![n] = l]
             /\ inbox' = [o \in Nodes |-> CASE
                 (o = n) -> Tail(inbox[n])
@@ -100,10 +100,11 @@ SyncRegister(n) ==
             [] OTHER -> locally_registered[n][o]
         ]
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
+        /\ registered' = IF conflict /\ message.time > locally_registered[n][n][message.name] THEN [registered EXCEPT![message.name] = @ - 1] ELSE registered
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
     /\ time' = time + 1
     /\ states' = Append(states, <<"SyncRegister", n, Head(inbox[n]).name>>)
-    /\ UNCHANGED <<registered, names, visible_nodes, disconnections>>
+    /\ UNCHANGED <<names, visible_nodes, disconnections>>
 
 ItemToRemove(n) ==
     CHOOSE r \in DOMAIN locally_registered[n][n]: TRUE
@@ -130,7 +131,7 @@ UnregisterOnNode(n) ==
             /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
             /\ names' = names
         ELSE
-            registered' = (IF message.name \in RegisteredElsewhere(n) THEN registered ELSE registered \ {message.name})
+            registered' = [registered EXCEPT![message.name] = @ - 1]
             /\ locally_registered' = [locally_registered EXCEPT![n] = ([locally_registered[n] EXCEPT![n] = l])]
             /\ inbox' = [o \in Nodes |-> CASE
                 (o = n) -> Tail(inbox[n])
@@ -249,7 +250,8 @@ Spec == Init /\ [][Next]_vars
 
 AllRegistered ==
     \A n \in Nodes:
-        (\A o \in Nodes: Len(inbox[o]) = 0) /\ visible_nodes[n] = AllOtherNodes(n) => AllRegisteredForNode(locally_registered[n]) = registered
+        LET reg == {r \in DOMAIN registered: registered[r] > 0}
+        IN (\A o \in Nodes: Len(inbox[o]) = 0) /\ visible_nodes[n] = AllOtherNodes(n) => AllRegisteredForNode(locally_registered[n]) = reg
 
 RECURSIVE Duplicates(_, _, _)
 
