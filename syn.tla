@@ -207,12 +207,21 @@ Discover(n) ==
     /\ time' = time + 1
     /\ UNCHANGED <<registered, names, visible_nodes, locally_registered, disconnections>>
 
+MergeRegistries(local, remote, local_node, remote_node) ==
+    LET local_merged == [rr \in {r \in DOMAIN local[local_node] : (r \notin DOMAIN remote \/ local[local_node][r] > remote[r])} |-> local[local_node][rr]]
+        remote_merged == [rr \in {r \in DOMAIN remote : (r \notin DOMAIN local[local_node] \/ remote[r] > local[local_node][r])} |-> remote[rr]]
+    IN [r \in DOMAIN local |-> CASE
+        (r = remote_node) -> remote_merged
+        [] (r = local_node) -> local_merged
+        [] OTHER -> local[r]
+    ]
+
 AckSync(n) ==
     /\ Len(inbox[n]) > 0
     /\ Head(inbox[n]).action = "ack_sync"
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
     /\ LET message == Head(inbox[n])
-        l == [locally_registered[n] EXCEPT![message.from] = message.local_data]
+        l == MergeRegistries(locally_registered[n], message.local_data, n, message.from)
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
         /\ states' = Append(states, <<"AckSync", n, message.from>>)
     /\ time' = time + 1
