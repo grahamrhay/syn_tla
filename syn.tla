@@ -1,7 +1,7 @@
 ---- MODULE syn ----
 EXTENDS FiniteSets, Integers, Sequences, TLC
 
-CONSTANTS Nodes, MaxDisconnections
+CONSTANTS Nodes, Names, MaxDisconnections
 
 Symmetry == Permutations(Nodes)
 
@@ -38,7 +38,7 @@ Init ==
     /\ inbox = [n \in Nodes |-> <<>>]
     /\ registered = {}
     /\ locally_registered = [n1 \in Nodes |-> [n2 \in Nodes |-> <<>>]]
-    /\ names = [n \in Nodes |-> {"a"}]
+    /\ names = [n \in Nodes |-> Names]
     /\ disconnections = 0
     /\ visible_nodes = [n \in Nodes |-> AllOtherNodes(n)]
     /\ time = 0
