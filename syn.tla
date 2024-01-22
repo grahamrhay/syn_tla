@@ -34,6 +34,9 @@ AllRegisteredNames(nodes, locals, registrations) ==
 RegisteredElsewhere(node) ==
     AllRegisteredNames(AllOtherNodes(node), locally_registered, {})
 
+RegisteredOnThisNode(node) ==
+    AllRegisteredNames({node}, locally_registered, {})
+
 Init ==
     /\ inbox = [n \in Nodes |-> <<>>]
     /\ registered = [n \in Names |-> 0]
@@ -122,7 +125,7 @@ UnregisterOnNode(n) ==
     /\ Head(inbox[n]).action = "unregister_on_node"
     /\ LET message == Head(inbox[n])
         l == [r \in (DOMAIN locally_registered[n][n] \ {message.name}) |-> locally_registered[n][n][r]]
-        already_removed == message.name \notin AllRegisteredForNode(locally_registered[n])
+        already_removed == message.name \notin RegisteredOnThisNode(n)
         IN
         (IF already_removed THEN
             \* {error, undefined}
