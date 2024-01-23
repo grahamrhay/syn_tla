@@ -220,10 +220,14 @@ AckSync(n) ==
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
     /\ LET message == Head(inbox[n])
         l == MergeRegistries(locally_registered[n], message.local_data, n, message.from)
+        conflicts == DOMAIN locally_registered[n][n] \intersect DOMAIN message.local_data
+        c1 == [c \in { r \in conflicts : message.local_data[r] > locally_registered[n][n][r] } |-> registered[c] - 1]
+        c2 == [c \in { r \in conflicts : locally_registered[n][n][r] > message.local_data[r] } |-> registered[c]]
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
+        /\ registered' = c1 @@ c2 @@ [r \in (DOMAIN registered \ conflicts) |-> registered[r]]
         /\ states' = Append(states, <<"AckSync", n, message.from>>)
     /\ time' = time + 1
-    /\ UNCHANGED <<registered, names, visible_nodes, disconnections>>
+    /\ UNCHANGED <<names, visible_nodes, disconnections>>
 
 Down(n) ==
     /\ Len(inbox[n]) > 0
