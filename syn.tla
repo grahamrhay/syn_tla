@@ -87,6 +87,7 @@ SyncRegister(n) ==
     /\ Head(inbox[n]).action = "sync_register"
     /\ LET message == Head(inbox[n])
         conflict == message.name \in DOMAIN locally_registered[n][n]
+        keep_remote == conflict /\ (message.time > locally_registered[n][n][message.name])
         l == [o \in DOMAIN locally_registered[n] |-> CASE
             (o = message.from) -> (
                 IF conflict /\ locally_registered[n][n][message.name] > message.time THEN
@@ -102,8 +103,20 @@ SyncRegister(n) ==
             [] OTHER -> locally_registered[n][o]
         ]
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
-        /\ registered' = IF conflict /\ message.time > locally_registered[n][n][message.name] THEN [registered EXCEPT![message.name] = @ - 1] ELSE registered
-    /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
+        /\ registered' =
+            (IF keep_remote THEN
+                [registered EXCEPT![message.name] = @ - 1]
+            ELSE
+                registered)
+        /\ inbox' = [o \in Nodes |->
+            (IF (o = n) THEN
+                Tail(inbox[o])
+            ELSE
+                IF keep_remote THEN
+                    Append(inbox[o], [action |-> "killed", name |-> message.name, time |-> locally_registered[n][n][message.name], from |-> n])
+                ELSE
+                    inbox[o])
+        ]
     /\ time' = time + 1
     /\ states' = Append(states, <<"SyncRegister", n, Head(inbox[n]).name>>)
     /\ UNCHANGED <<names, visible_nodes, disconnections>>
@@ -214,20 +227,48 @@ MergeRegistries(local, remote, local_node, remote_node) ==
         [] OTHER -> local[r]
     ]
 
+SetToSeq(S) ==
+  CHOOSE f \in [1..Cardinality(S) -> S] : \A i, j \in DOMAIN f: (f[i] = f[j]) => (i = j)
+
 AckSync(n) ==
     /\ Len(inbox[n]) > 0
     /\ Head(inbox[n]).action = "ack_sync"
-    /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
     /\ LET message == Head(inbox[n])
         l == MergeRegistries(locally_registered[n], message.local_data, n, message.from)
         conflicts == DOMAIN locally_registered[n][n] \intersect DOMAIN message.local_data
-        c1 == [c \in { r \in conflicts : message.local_data[r] > locally_registered[n][n][r] } |-> registered[c] - 1]
-        c2 == [c \in { r \in conflicts : locally_registered[n][n][r] > message.local_data[r] } |-> registered[c]]
+        keep_remote == { r \in conflicts : message.local_data[r] > locally_registered[n][n][r] }
+        keep_local == { r \in conflicts : locally_registered[n][n][r] > message.local_data[r] }
+        c1 == [c \in keep_remote |-> registered[c] - 1]
+        c2 == [c \in keep_local |-> registered[c]]
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
         /\ registered' = c1 @@ c2 @@ [r \in (DOMAIN registered \ conflicts) |-> registered[r]]
+        /\ inbox' = [o \in Nodes |->
+            IF (o = n) THEN
+                Tail(inbox[o])
+            ELSE
+                IF keep_remote # {} THEN
+                    inbox[o] \o SetToSeq({[action |-> "killed", name |-> r, time |-> locally_registered[n][n][r], from |-> n] : r \in keep_remote})
+                ELSE
+                    inbox[o]
+        ]
         /\ states' = Append(states, <<"AckSync", n, message.from>>)
     /\ time' = time + 1
     /\ UNCHANGED <<names, visible_nodes, disconnections>>
+
+Killed(n) ==
+    /\ Len(inbox[n]) > 0
+    /\ Head(inbox[n]).action = "killed"
+    /\ LET message == Head(inbox[n])
+        exact_match == message.name \in DOMAIN locally_registered[n][message.from] /\ locally_registered[n][message.from][message.name] = message.time
+        l == (IF exact_match THEN
+                [r \in (DOMAIN locally_registered[n][message.from] \ {message.name}) |-> locally_registered[n][message.from][r]]
+            ELSE
+                locally_registered[n][message.from])
+        IN inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
+        /\ locally_registered' = [locally_registered EXCEPT![n] = ([locally_registered[n] EXCEPT![message.from] = l])]
+        /\ states' = Append(states, <<"Killed", n, message.from, message.name>>)
+    /\ time' = time + 1
+    /\ UNCHANGED <<registered, names, visible_nodes, disconnections>>
 
 Down(n) ==
     /\ Len(inbox[n]) > 0
@@ -257,6 +298,7 @@ Next ==
         \/ Reconnect(n)
         \/ Discover(n)
         \/ AckSync(n)
+        \/ Killed(n)
         \/ Down(n)
         \/ Complete(n)
 
