@@ -122,8 +122,9 @@ Unregister(n) ==
     /\ LET item_to_remove == ItemToRemove(n)
         IN inbox' = [inbox EXCEPT![n] = Append(inbox[n], [action |-> "unregister_on_node", name |-> item_to_remove])]
         /\ states' = Append(states, <<"Unregister", n, item_to_remove>>)
+        /\ names' = [names EXCEPT![n] = names[n] \union {item_to_remove}]
     /\ time' = time + 1
-    /\ UNCHANGED <<registered, locally_registered, visible_nodes, disconnections, names>>
+    /\ UNCHANGED <<registered, locally_registered, visible_nodes, disconnections>>
 
 UnregisterOnNode(n) ==
     /\ Len(inbox[n]) > 0
