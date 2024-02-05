@@ -1,7 +1,7 @@
 ---- MODULE syn ----
 EXTENDS FiniteSets, Integers, Sequences, TLC
 
-CONSTANTS Nodes, Names, MaxDisconnections
+CONSTANTS Nodes, Names
 
 Symmetry == Permutations(Nodes)
 
@@ -163,7 +163,6 @@ SyncUnregister(n) ==
     /\ UNCHANGED <<registered, names, visible_nodes, disconnections>>
 
 Disconnect(n) ==
-    /\ disconnections < MaxDisconnections
     /\ Cardinality(visible_nodes[n]) > 0
     /\ LET other_node == CHOOSE o \in visible_nodes[n]: TRUE
         IN visible_nodes' = [o \in Nodes |-> CASE
