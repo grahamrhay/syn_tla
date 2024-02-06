@@ -30,13 +30,33 @@ ASSUME LET local == ("n1" :> [a |-> 1] @@ "n2" :> <<>> @@ "n3" :> <<>>)
            remote == [a |-> 0]
            local_node == "n1"
            remote_node == "n2"
-       res == MergeRegistries(local, remote, local_node, remote_node)
+       res == MergeRegistries(local, remote, remote_node)
        IN res = [n1 |-> [a |-> 1], n2 |-> << >>, n3 |-> <<>>]
 
 ASSUME LET local == ("n1" :> [a |-> 1] @@ "n2" :> <<>> @@ "n3" :> <<>>)
            remote == [a |-> 2]
            local_node == "n1"
            remote_node == "n2"
-       res == MergeRegistries(local, remote, local_node, remote_node)
+       res == MergeRegistries(local, remote, remote_node)
        IN res = [n1 |-> << >>, n2 |-> [a |-> 2], n3 |-> <<>>]
+
+ASSUME LET local == ("n1" :> <<>> @@ "n2" :> <<>> @@ "n3" :> [a |-> 1])
+           remote == [a |-> 2]
+           local_node == "n1"
+           remote_node == "n2"
+       res == MergeRegistries(local, remote, remote_node)
+       IN res = [n1 |-> << >>, n2 |-> [a |-> 2], n3 |-> <<>>]
+
+ASSUME LET local == ("n1" :> << >> @@ "n2" :> <<>> @@ "n3" :> ("a" :> 1))
+           remote == ("a" :> 0)
+           local_node == "n1"
+           remote_node == "n2"
+           res == MergeRegistries(local, remote, remote_node)
+       IN res = [n1 |-> << >>, n2 |-> << >>, n3 |-> [a |-> 1]]
+
+ASSUME LET local == ("n1" :> << >> @@ "n2" :> << >> @@ "n3" :> ("a" :> 0))
+           remote == [b |-> 1]
+           remote_node == "n3"
+           res == MergeRegistries(local, remote, remote_node)
+       IN res = [n1 |-> << >>, n2 |-> << >>, n3 |-> [a |-> 0, b |-> 1]]
 ====

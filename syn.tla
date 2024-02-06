@@ -82,25 +82,31 @@ RegisterOrUpdateOnNode(n) ==
     /\ time' = time + 1
     /\ UNCHANGED <<names, visible_nodes, disconnections>>
 
+Merge(left, right) ==
+    LET to_keep == {name \in DOMAIN left : (name \notin DOMAIN right \/ left[name] > right[name])}
+    IN [name \in to_keep |-> left[name]]
+
+RECURSIVE Flatten(_, _, _)
+
+Flatten(keys, struct, acc) ==
+    IF keys = {} THEN acc
+    ELSE
+        LET k == CHOOSE k \in keys: TRUE
+        IN Flatten(keys \ {k}, struct, acc @@ struct[k])
+
+MergeRegistries(local, remote, remote_node) ==
+    LET all_registered == Flatten(DOMAIN local, local, << >>)
+    IN [r \in DOMAIN local |-> CASE
+        (r = remote_node) -> local[r] @@ Merge(remote, all_registered)
+        [] OTHER -> Merge(local[r], remote)
+    ]
+
 SyncRegister(n) ==
     /\ Len(inbox[n]) > 0
     /\ Head(inbox[n]).action = "sync_register"
     /\ LET message == Head(inbox[n])
         conflict == message.name \in DOMAIN locally_registered[n][n]
-        l == [o \in DOMAIN locally_registered[n] |-> CASE
-            (o = message.from) -> (
-                IF conflict /\ locally_registered[n][n][message.name] > message.time THEN
-                    locally_registered[n][message.from]
-                ELSE
-                    locally_registered[n][message.from] @@ [r \in {message.name} |-> message.time]
-            )
-            [] (o = n) ->
-                IF conflict /\ locally_registered[n][n][message.name] > message.time THEN
-                    locally_registered[n][n]
-                ELSE
-                    [r \in (DOMAIN locally_registered[n][n] \ {message.name}) |-> locally_registered[n][n][r]]
-            [] OTHER -> locally_registered[n][o]
-        ]
+        l == MergeRegistries(locally_registered[n], [r \in {message.name} |-> message.time], message.from)
         IN locally_registered' = [locally_registered EXCEPT![n] = l]
         /\ registered' = IF conflict /\ message.time > locally_registered[n][n][message.name] THEN [registered EXCEPT![message.name] = @ - 1] ELSE registered
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
@@ -205,21 +211,12 @@ Discover(n) ==
     /\ time' = time + 1
     /\ UNCHANGED <<registered, names, visible_nodes, locally_registered, disconnections>>
 
-MergeRegistries(local, remote, local_node, remote_node) ==
-    LET local_merged == [rr \in {r \in DOMAIN local[local_node] : (r \notin DOMAIN remote \/ local[local_node][r] > remote[r])} |-> local[local_node][rr]]
-        remote_merged == [rr \in {r \in DOMAIN remote : (r \notin DOMAIN local[local_node] \/ remote[r] > local[local_node][r])} |-> remote[rr]]
-    IN [r \in DOMAIN local |-> CASE
-        (r = remote_node) -> remote_merged
-        [] (r = local_node) -> local_merged
-        [] OTHER -> local[r]
-    ]
-
 AckSync(n) ==
     /\ Len(inbox[n]) > 0
     /\ Head(inbox[n]).action = "ack_sync"
     /\ inbox' = [inbox EXCEPT![n] = Tail(inbox[n])]
     /\ LET message == Head(inbox[n])
-        l == MergeRegistries(locally_registered[n], message.local_data, n, message.from)
+        l == MergeRegistries(locally_registered[n], message.local_data, message.from)
         conflicts == DOMAIN locally_registered[n][n] \intersect DOMAIN message.local_data
         c1 == [c \in { r \in conflicts : message.local_data[r] > locally_registered[n][n][r] } |-> registered[c] - 1]
         c2 == [c \in { r \in conflicts : locally_registered[n][n][r] > message.local_data[r] } |-> registered[c]]
